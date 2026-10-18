@@ -1,0 +1,20 @@
+const {spawnSync}=require('node:child_process'),fs=require('node:fs'),path=require('node:path');
+const root=path.resolve(__dirname,'..'),dist=path.join(root,'dist');
+if(process.platform!=='win32'||process.arch!=='x64')throw Error('Build this release on Windows x64.');
+require('./make-app-icon.cjs');
+const env={...process.env,CSC_IDENTITY_AUTO_DISCOVERY:'false'};delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_OPTIONS;
+const cli=require.resolve('electron-builder/cli.js');
+const result=spawnSync(process.execPath,[cli,'--config','electron-builder.cjs','--win','--x64','--publish','never'],{cwd:root,env,stdio:'inherit',windowsHide:true});
+if(result.error)throw result.error;if(result.status!==0)process.exit(result.status||1);
+const source=path.join(dist,'win-unpacked'),destination=path.join(dist,'宛名はがき');
+// Archive prior generated output without deleting user files or installation data.
+for(const target of [source,destination])if(!path.resolve(target).startsWith(dist+path.sep))throw Error('Output must stay inside dist.');
+const archive=path.join(root,'.runtime','previous-builds');fs.mkdirSync(archive,{recursive:true});
+if(fs.existsSync(destination))fs.renameSync(destination,path.join(archive,'app-'+Date.now()));
+fs.renameSync(source,destination);
+const blockedPortable=path.join(dist,'宛名はがき.exe');if(fs.existsSync(blockedPortable))fs.renameSync(blockedPortable,path.join(archive,'blocked-portable-'+Date.now()+'.exe'));
+const file=path.join(destination,'宛名はがき.exe');if(!fs.existsSync(file))throw Error('Packaged executable was not created.');
+const hash=require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+fs.writeFileSync(path.join(dist,'SHA256.txt'),hash+'  宛名はがき/宛名はがき.exe\r\n');
+fs.writeFileSync(path.join(dist,'はじめに.txt'),'宛名はがき Windows版\r\n\r\n「宛名はがき」フォルダー内の「宛名はがき.exe」をダブルクリックして起動します。\r\nexeと一緒に入っているDLL、resources、localesなどは移動・削除せず、フォルダーごと保管してください。\r\nNode.jsのインストールや管理者権限は不要です。\r\nWindows 10 / 11（64ビット）用です。\r\n\r\n住所録・年賀状の保存先：ドキュメント内の「宛名はがき」\r\n起動ログ：%APPDATA%\\atena-postcard\\logs\\startup.log\r\nこれまでの「起動.cmd」も使えます。住所録は同じ保存先を使用します。\r\n\r\nこのPCではWindowsのアプリ制御が単体ポータブル版の起動プログラムをブロックしたため、実際に起動を確認できるフォルダー同梱版で配布します。セキュリティ設定は変更していません。\r\n実機プリンターは、接続後に1枚の試し刷りで確認してください。\r\n');
+console.log('Windows executable: '+file);

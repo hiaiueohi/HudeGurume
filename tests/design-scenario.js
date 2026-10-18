@@ -62,7 +62,7 @@
  assert(document.querySelectorAll('#printArea .design-card').length===2,'Printing should prepare the requested number of design sides');
  $('#printTestOnly').checked=false;$('#printTestOnly').dispatchEvent(new Event('change'));$('#printStart').click();
  await waitFor(()=>$('#printMessage').textContent.includes('送信'));$('#printCancel').click();
- $('#printDesign').click();await waitFor(()=>$('#printDialog').open&&!$('#printStart').disabled);$('#printStart').click();await waitFor(()=>$('#printMessage').textContent.includes('送信'));$('#printCancel').click();
+ $('#printDesign').click();await waitFor(()=>$('#printDialog').open&&!$('#printStart').disabled);$('#printDialog').dispatchEvent(new Event('close'));$('#printStart').click();await waitFor(()=>$('#printMessage').textContent.includes('送信'));$('#printCancel').click();
  $('#designMessage').value='一\n二\n三\n四';$('#designMessage').dispatchEvent(new Event('input',{bubbles:true}));
  $('#printDesign').click();
  assert(!$('#printDialog').open&&$('#designSaveStatus').textContent.includes('3行'),'Invalid wording should block printing and report the issue');

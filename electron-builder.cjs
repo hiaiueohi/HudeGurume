@@ -1,0 +1,16 @@
+module.exports={
+  appId:'jp.atena.postcard',
+  productName:'宛名はがき',
+  executableName:'宛名はがき',
+  directories:{output:'dist',buildResources:'build'},
+  electronDist:'node_modules/electron/dist',
+  asar:true,
+  compression:'normal',
+  electronLanguages:['ja','en-US'],
+  files:[
+    'package.json','desktop.cjs','preload.cjs','address-book-store.cjs',
+    'storage-ipc.cjs','design-library.cjs','printing-ipc.cjs',
+    'index.html','splash.html','src/**/*','assets/designs/**/*'
+  ],
+  win:{target:[{target:'dir',arch:['x64']}],icon:'build/icon.ico',requestedExecutionLevel:'asInvoker',signExecutable:false}
+};

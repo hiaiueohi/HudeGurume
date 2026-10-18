@@ -1,7 +1,12 @@
 const {app, BrowserWindow, dialog, ipcMain, shell} = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const log = message => fs.appendFileSync(path.join(__dirname, 'startup.log'), new Date().toISOString() + ' ' + message + '\n');
+// The executable may be in a read-only installation directory or inside app.asar.
+// Keep the existing development profile so legacy browser data can still migrate.
+if(app.isPackaged&&!app.commandLine.hasSwitch('user-data-dir'))app.setPath('userData',path.join(app.getPath('appData'),'atena-postcard'));
+if(process.platform==='win32')app.setAppUserModelId('jp.atena.postcard');
+const logFolder=path.join(app.getPath('userData'),'logs');
+const log = message => {try{fs.mkdirSync(logFolder,{recursive:true});fs.appendFileSync(path.join(logFolder,'startup.log'),new Date().toISOString()+' '+message+'\n');}catch(error){console.error('Unable to write startup log:',error.message);}};
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 let win, splash;
 let mainShown = false, launchCancelled = false;
@@ -20,7 +25,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   // Chromium's cache is separate from the address book in Documents.
-  const cacheRoot = path.join(__dirname, '.runtime', 'cache');
+  const cacheRoot = path.join(app.getPath('userData'), 'cache');
   fs.mkdirSync(cacheRoot, {recursive: true});
   const cachePath = fs.mkdtempSync(path.join(cacheRoot, 'session-'));
   app.commandLine.appendSwitch('disk-cache-dir', cachePath);

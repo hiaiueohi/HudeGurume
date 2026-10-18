@@ -19,7 +19,7 @@
   }
   function init(){
     const dialog=$('#printDialog');$('#printCancel').onclick=$('#printClose').onclick=()=>{if(!busy)dialog.close();};
-    dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});dialog.addEventListener('close',()=>{job=null;token++;});
+    dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});dialog.addEventListener('close',()=>{if(dialog.open)return;job=null;token++;});
     $('#refreshPrinters').onclick=refresh;$('#printerSelect').onchange=$('#printTestOnly').onchange=update;
     $('#printStart').onclick=async()=>{
       if(busy||!job||!$('#printerSelect').value)return;busy=true;update();
