@@ -53,10 +53,11 @@
   assert($('#selectAll').indeterminate && count() === 3, 'Partial selection should be reflected in the unified list');
   $('#list .person-button').click();
   $('#selectAll').click();
-  let printCalled = false;
-  window.print = () => { printCalled = true; };
   $('#print').click();
-  assert(printCalled && $('#printArea').children.length === 3, 'Print should include selected individual and imported recipients');
+  await waitFor(()=>$('#printDialog').open&&!$('#printStart').disabled);
+  assert($('#printArea').children.length===3&&$('#printTestOnly').checked,'Print should include selected recipients and default to one test page');
+  $('#printStart').click();await waitFor(()=>$('#printMessage').textContent.includes('送信'));
+  $('#printCancel').click();
   assert($('#preview').textContent.includes('山田 次郎'), 'Preview should match the selected row');
   await document.fonts.ready;
   return {ok:true, records:count(), selected:$('#printCount').textContent, checks:['individual registration', 'CSV preview and cancellation', 'unified address book', 'edit without duplication', 'filtered selection', 'batch print']};

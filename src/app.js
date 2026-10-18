@@ -1,6 +1,8 @@
 const C = PostcardCore;
 const $ = selector => document.querySelector(selector);
 const KEY = 'atena-postcard-v1';
+const nativeStorage = window.addressBookStorage;
+let storageReady = !nativeStorage, storageInfo = null;
 let state = {records: [], sender: {}, offsetX: 0, offsetY: 0};
 let active = null;
 let selected = new Set();
@@ -14,30 +16,44 @@ function setStatus(message, error = false) {
   }
 }
 function validate(s) {
-  if (!s || !Array.isArray(s.records) || !s.sender || typeof s.sender !== 'object') throw Error('住所録データの形式が不正です');
-  const fields = ['id', 'name', 'honorific', 'joint', 'zip', 'address', 'building'];
-  const ids = new Set();
-  for (const r of s.records) {
-    if (!r || fields.some(k => r[k] !== undefined && typeof r[k] !== 'string') || !r.id || !r.name || !r.address || ids.has(r.id)) throw Error('住所録に不正な項目があります');
-    ids.add(r.id);
-  }
-  for (const k of ['name', 'zip', 'address', 'building']) if (s.sender[k] !== undefined && typeof s.sender[k] !== 'string') throw Error('差出人が不正です');
-  return {records: s.records, sender: s.sender, offsetX: Number.isFinite(s.offsetX) ? Math.max(-15, Math.min(15, s.offsetX)) : 0, offsetY: Number.isFinite(s.offsetY) ? Math.max(-15, Math.min(15, s.offsetY)) : 0};
+  return C.validateState(s);
 }
 try {
-  const saved = localStorage.getItem(KEY);
-  if (saved) state = validate(JSON.parse(saved));
+  let saved = null, legacyUnavailable = false;
+  try { saved = localStorage.getItem(KEY); } catch (error) { legacyUnavailable = true; }
+  if (nativeStorage) {
+    const result = nativeStorage.load(saved, legacyUnavailable);
+    storageInfo = result.info;
+    if (!result.ok) throw Error(result.error);
+    state = validate(result.state);
+    storageReady = true;
+    if (result.migrated) setStatus('これまでの住所録を、ドキュメント内の「宛名はがき」フォルダーへ移行しました。');
+  } else {
+    if (legacyUnavailable) throw Error('ブラウザー内の保存領域を読み込めません。');
+    if (saved) state = validate(JSON.parse(saved));
+  }
 } catch (error) {
-  setStatus('保存データを読み込めませんでした。バックアップから復元してください。', true);
+  setStatus('住所録を読み込めませんでした。' + error.message + ' 保存先を確認するか、バックアップから復元してください。', true);
 }
-function commit(next, message) {
+function commit(next, message, {recover = false} = {}) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(next));
-    state = next;
+    next = validate(next);
+    if (nativeStorage) {
+      if (!storageReady && !recover) throw Error('読み込みに失敗しているため、上書きを停止しています。バックアップから復元してください。');
+      const result = recover ? nativeStorage.restore(next) : nativeStorage.save(next);
+      if (!result.ok) throw Error(result.error);
+      storageInfo = result.info;
+      state = validate(result.state);
+      storageReady = true;
+    } else {
+      localStorage.setItem(KEY, JSON.stringify(next));
+      state = next;
+    }
+    updateStorageLabel();
     if (message) setStatus(message);
     return true;
   } catch (error) {
-    setStatus('端末への保存に失敗しました。住所録の保存・復元からバックアップを保存してください。', true);
+    setStatus('住所録を保存できませんでした。' + error.message, true);
     return false;
   }
 }
@@ -86,7 +102,7 @@ function renderList() {
   $('#totalCount').textContent = state.records.length + '人';
   $('#emptyState').hidden = state.records.length > 0;
   $('#noResults').hidden = !state.records.length || visible.length > 0;
-  $('#visibleCount').textContent = visible.length + ' / ' + state.records.length + '人を表示 ・ この端末に保存';
+  $('#visibleCount').textContent = visible.length + ' / ' + state.records.length + '人を表示 ・ 変更を自動保存';
   for (const r of visible) {
     const row = el('tr', 'entry' + (r.id === active ? ' active' : ''));
     const checkCell = el('td');
@@ -126,34 +142,37 @@ function openEditor(id = null) {
   $('#recipient').elements.name.focus();
 }
 function card(r) {
-  const page = el('div', 'card'), content = el('div', 'content');
-  content.style.setProperty('--x', state.offsetX + 'mm');
-  content.style.setProperty('--y', state.offsetY + 'mm');
-  page.append(content);
-  const postal = el('div', 'postal');
-  for (const digit of C.zipDigits(r.zip).padEnd(7, ' ').slice(0, 7)) postal.append(el('span', '', digit));
-  content.append(postal);
-  const address = el('div', 'address', C.verticalAddress(r.address));
-  if ((r.address || '').length > 30) address.style.fontSize = '11pt';
-  content.append(address, el('div', 'address building', C.verticalAddress(r.building)));
-  const names = el('div', 'names');
-  const people = [r.name, ...(r.joint || '').split(/\r?\n/).filter(s => s.trim())];
-  for (const name of people) {
-    const text = name.trim() + (r.honorific ? '　' + r.honorific : '');
-    names.append(el('div', 'person' + (text.length > 13 || people.length > 2 ? ' small' : ''), text));
-  }
-  content.append(names);
-  if ($('#newyear').checked) content.append(el('div', 'newyear', '年賀'));
-  const s = state.sender, sender = el('div', 'sender');
-  sender.append(el('div', '', C.verticalAddress(s.address)), el('div', '', C.verticalAddress(s.building)), el('div', 'sender-name', s.name || ''));
-  content.append(sender, el('div', 'senderzip', s.zip ? '〒 ' + s.zip : ''));
-  return page;
+  return FrontRenderer.card(r,state,$('#newyear').checked);
+}
+function openFrontLayoutEditor(){
+  const record=state.records.find(r=>r.id===active);if(!record)return;
+  const sender=record.senderOverride||state.sender;
+  const content={...record,senderName:sender.name||'',senderAddress:sender.address||'',senderBuilding:sender.building||'',senderZip:sender.zip||'',yearLabel:record.yearLabel??'年賀'};
+  const makeRecord=text=>({...record,name:text.name,honorific:text.honorific,joint:text.joint,zip:text.zip,address:text.address,building:text.building,yearLabel:text.yearLabel,senderOverride:{name:text.senderName,address:text.senderAddress,building:text.senderBuilding,zip:text.senderZip}});
+  DesignLayoutEditor.open({model:FrontLayout,item:{id:record.id,name:record.name+'さんの宛名面'},layout:state.frontLayout,content,
+    oneLabel:'この宛先だけ',allLabel:'住所録の全員',
+    textNote:'氏名・住所・差出人の文字はこの宛先だけに保存します。全員の差出人は画面上部で設定できます。',
+    oneHint:'配置・文字の向き・大きさを、この宛先だけに適用します。',allHint:'変更した項目の配置・文字の向き・大きさを、全員に適用します。宛先の文字は各人のままです。',
+    fields:key=>({names:[{key:'name',label:'宛先の氏名',maxLength:80},{key:'honorific',label:'敬称',maxLength:10},{key:'joint',label:'連名（1行に1名）',rows:3,maxLength:240}],address:[{key:'address',label:'住所',rows:3}],building:[{key:'building',label:'建物名・部屋番号',rows:2}],postal:[{key:'zip',label:'郵便番号',maxLength:10}],sender:[{key:'senderName',label:'差出人の氏名',maxLength:80},{key:'senderAddress',label:'差出人の住所',rows:3},{key:'senderBuilding',label:'差出人の建物名',rows:2}],senderzip:[{key:'senderZip',label:'差出人の郵便番号',maxLength:10}],newyear:[{key:'yearLabel',label:'表示する文字',maxLength:20}]})[key]||[],
+    render:(layout,text)=>FrontRenderer.card(makeRecord(text),{...state,frontLayout:layout},$('#newyear').checked),
+    applyPositions:(page,layout,text)=>FrontRenderer.applyPositions(page,makeRecord(text),{...state,frontLayout:layout}),
+    onApply:(frontLayout,scope,text)=>{
+      const r=makeRecord(text);r.name=r.name.trim();r.address=r.address.trim();
+      if(!r.name||!r.address)return {ok:false,error:'宛先の氏名と住所を入力してください。'};
+      if((r.zip&&!C.validZip(r.zip))||(r.senderOverride.zip&&!C.validZip(r.senderOverride.zip)))return {ok:false,error:'郵便番号は7桁で入力してください。'};
+      // Preserve inheritance from the common sender until this recipient's sender is actually edited.
+      if(['name','address','building','zip'].every(k=>r.senderOverride[k]===(sender[k]||''))&&!record.senderOverride)delete r.senderOverride;
+      if(!commit({...state,frontLayout,records:state.records.map(x=>x.id===record.id?r:x)},scope==='all'?'変更した配置と文字の書式を全員に適用しました。':'この宛先の編集内容を保存しました。'))return {ok:false,error:'保存できませんでした。住所録の保存先を確認してください。'};
+      renderList();preview();return {ok:true};
+    }
+  });
 }
 function updatePreviewLabels() {
   const r = state.records.find(r => r.id === active);
   $('#previewBadge').textContent = r ? (selected.has(r.id) ? '印刷対象' : '確認のみ') : '記入例';
   $('#previewCaption').textContent = r ? r.name + (r.honorific ? ' ' + r.honorific : '') : '宛先を追加すると、ここに表示されます。';
   $('#editActive').disabled = !r;
+  $('#openFrontLayoutEditor').disabled=!r;
 }
 function preview() {
   const r = state.records.find(r => r.id === active) || {name: '山田 太郎', honorific: '様', zip: '1234567', address: '東京都千代田区丸の内1-2-3', building: 'サンプルマンション101号室'};
@@ -168,7 +187,7 @@ $('#recipient').onsubmit = event => {
   if (r.zip && !C.validZip(r.zip)) return setStatus('郵便番号は7桁で入力してください。', true);
   const existing = state.records.find(x => x.id === r.id);
   r.id = r.id || crypto.randomUUID();
-  const records = existing ? state.records.map(x => x.id === r.id ? r : x) : [...state.records, r];
+  const records = existing ? state.records.map(x => x.id === r.id ? {...x,...r} : x) : [...state.records, r];
   if (!commit({...state, records}, existing ? r.name + 'さんの宛先を更新しました。' : r.name + 'さんを住所録に追加しました。現在 ' + records.length + '人です。')) return;
   if (!existing) selected.add(r.id);
   $('#search').value = '';
@@ -177,6 +196,8 @@ $('#recipient').onsubmit = event => {
 };
 $('#add').onclick = () => openEditor();
 $('#editActive').onclick = () => openEditor(active);
+$('#openFrontLayoutEditor').onclick=$('#preview').onclick=openFrontLayoutEditor;
+$('#preview').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openFrontLayoutEditor();}};
 $('#search').oninput = renderList;
 $('#selectAll').onchange = event => {
   for (const r of filteredRecords()) event.target.checked ? selected.add(r.id) : selected.delete(r.id);
@@ -203,7 +224,7 @@ $('#sender').onsubmit = event => {
   updateSenderButton();
   preview();
 };
-function updateSenderButton() { $('#openSender').textContent = state.sender.name ? '差出人：' + state.sender.name : '差出人を設定'; }
+function updateSenderButton() { $('#openSender').textContent = state.sender.name ? '差出人：' + state.sender.name : '差出人を設定'; window.PostcardDesignApp?.refresh(); }
 function download(name, text, type) {
   const url = URL.createObjectURL(new Blob([text], {type})), a = el('a');
   a.href = url; a.download = name; a.click();
@@ -278,7 +299,7 @@ $('#restore').onchange = async event => {
     const file = event.target.files[0]; if (!file) return;
     const data = validate(JSON.parse(await file.text()));
     if (!confirm('現在の住所録と差出人をバックアップの内容で置き換えますか？')) return;
-    if (!commit(data, 'バックアップから ' + data.records.length + '人の住所録を復元しました。')) return;
+    if (!commit(data, 'バックアップから ' + data.records.length + '人の住所録を復元しました。', {recover:true})) return;
     selected = new Set(state.records.map(r => r.id));
     $('#search').value = '';
     init();
@@ -291,19 +312,33 @@ for (const key of ['offsetX', 'offsetY']) $('#' + key).oninput = event => {
   if (commit({...state, [key]:value})) preview();
 };
 $('#newyear').onchange = preview;
-$('#print').onclick = () => {
+$('#print').onclick = async () => {
   const records = state.records.filter(r => selected.has(r.id));
   if (!records.length) return setStatus('印刷する宛先にチェックを付けてください。', true);
   const invalid = records.find(r => r.zip && !C.validZip(r.zip));
   if (invalid) return setStatus(invalid.name + 'さんの郵便番号を確認してください。', true);
   $('#printArea').replaceChildren(...records.map(card));
-  window.print();
+  await PostcardPrinting.open({side:'宛名面（おもて）',count:records.length});
 };
 function init() {
   fill($('#sender'), state.sender);
   $('#offsetX').value = state.offsetX; $('#offsetY').value = state.offsetY;
   updateSenderButton();
+  updateStorageLabel();
   choose(state.records[0]?.id || null);
 }
+function updateStorageLabel() {
+  $('#storageLocation').textContent = nativeStorage ? (storageReady ? 'ドキュメント / 宛名はがき（自動保存）' : 'ドキュメント / 宛名はがき（読み込み・保存を確認してください）') : 'ブラウザー内（ドキュメントに保存する場合は「起動.cmd」から開いてください）';
+  $('#storageLocation').title = storageInfo?.filePath || '';
+  $('#openStorageFolder').hidden = !nativeStorage;
+}
+$('#openStorageFolder').onclick = async () => {
+  try {
+    const result = await nativeStorage.openFolder();
+    if (!result.ok) throw Error(result.error);
+  } catch (error) { setStatus('保存先フォルダーを開けませんでした。' + error.message, true); }
+};
 selected = new Set(state.records.map(r => r.id));
 init();
+window.PostcardDesignApp.init({getSender:()=>state.sender});
+window.PostcardPrinting.init();

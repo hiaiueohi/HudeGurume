@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+  <title>宛名はがき — 起動中</title>
+  <link rel="stylesheet" href="src/splash.css">
+</head>
+<body>
+  <div class="window-drag" aria-hidden="true"></div>
+  <button id="closeSplash" class="close" aria-label="起動を中止して閉じる" title="閉じる">×</button>
+  <main role="img" aria-label="湯気の立つコーヒーカップが、ぽわんぽわんと浮かんでいます">
+    <svg class="coffee-scene" viewBox="0 0 540 450" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <radialGradient id="halo"><stop stop-color="#edf5fc"/><stop offset="1" stop-color="#f9fbfe"/></radialGradient>
+        <linearGradient id="cup" x1="0" y1="0" x2=".9" y2="1"><stop stop-color="#6ba3c6"/><stop offset="1" stop-color="#367ba7"/></linearGradient>
+      </defs>
+      <rect width="540" height="450" fill="#f9fbfe"/>
+      <circle class="halo" cx="270" cy="231" r="124" fill="url(#halo)"/>
+      <circle class="ripple ripple-one" cx="270" cy="239" r="102" fill="none" stroke="#e0edf6" stroke-width="1.5"/>
+      <circle class="ripple ripple-two" cx="270" cy="239" r="102" fill="none" stroke="#e0edf6" stroke-width="1.5"/>
+      <ellipse class="cup-shadow" cx="270" cy="329" rx="81" ry="8" fill="#c7d8e5" opacity=".3"/>
+      <g class="saucer" fill="none" stroke-linecap="round">
+        <path d="M185 309c29 16 134 16 165-1" stroke="#80abc7" stroke-width="5"/>
+        <path d="M210 321c29 7 75 7 105-1" stroke="#c0d8e8" stroke-width="3"/>
+      </g>
+      <g class="coffee-bob">
+        <g class="steam" fill="none" stroke="#d7836a" stroke-width="5.5" stroke-linecap="round">
+          <path class="steam-left" d="M244 179c-26-17 16-28 2-46"/>
+          <path class="steam-middle" d="M267 177c-30-21 21-35 2-64"/>
+          <path class="steam-right" d="M288 182c-24-16 12-25 4-43"/>
+        </g>
+        <path d="M319 219c48-15 51 44 0 44" fill="none" stroke="#3f7fa9" stroke-width="12" stroke-linecap="round"/>
+        <path d="M206 208c2 28 6 57 24 69 16 11 53 11 69 0 18-12 23-41 24-69Z" fill="url(#cup)"/>
+        <path d="M218 226c2 21 6 33 17 41" fill="none" stroke="#a8cce1" stroke-width="5" stroke-linecap="round" opacity=".65"/>
+        <ellipse cx="264.5" cy="208" rx="58.5" ry="17" fill="#e7f2fa" stroke="#4382ac" stroke-width="3"/>
+        <ellipse cx="264.5" cy="210" rx="46" ry="10" fill="#be8b68"/>
+        <path d="M232 210c11-6 40-8 60-2" fill="none" stroke="#e9cbb0" stroke-width="3" stroke-linecap="round"/>
+      </g>
+    </svg>
+  </main>
+  <p id="launchStatus" class="sr-only" role="status" aria-live="polite">コーヒーカップがふわふわと浮かんでいます。</p>
+  <script src="src/splash.js"></script>
+</body>
+</html>
