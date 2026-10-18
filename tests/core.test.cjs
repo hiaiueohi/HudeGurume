@@ -1,0 +1,4 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const C=require('../src/core.js');
+test('CSV preserves commas, quotes, Japanese and multiline joint names',()=>{const r={name:'山田 "太郎",様',honorific:'様',joint:'花子\n一郎',zip:'123-4567',address:'東京都1-2-3',building:'A,101'};assert.deepEqual(C.fromCSV(C.toCSV([r])),[r]);});
+test('reject malformed and incomplete imports before mutation',()=>{assert.throws(()=>C.fromCSV('氏名,住所\n"山田,東京'));assert.throws(()=>C.fromCSV('氏名,住所\n山田,'));assert.throws(()=>C.fromCSV('氏名,住所,郵便番号\n山田,東京,123'));});
+test('postal code normalization and vertical numbers',()=>{assert.equal(C.zipDigits('１２３－４５６７'),'1234567');assert.equal(C.validZip('123-4567'),true);assert.equal(C.validZip('123a4567'),false);assert.equal(C.verticalAddress('丸の内１２-3'),'丸の内一二ー三');});
