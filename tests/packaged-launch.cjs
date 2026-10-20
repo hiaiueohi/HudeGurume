@@ -2,7 +2,7 @@
 // Read-only UI checks: never register test recipients or send a print job.
 const fs=require('node:fs'),path=require('node:path'),net=require('node:net'),{spawn,spawnSync}=require('node:child_process');
 const {CDPClient}=require('./cdp-client.cjs');
-const root=path.resolve(__dirname,'..'),exe=path.join(root,'dist','宛名はがき','宛名はがき.exe'),runtime=path.join(root,'.runtime');
+const root=path.resolve(__dirname,'..'),exe=path.join(root,'.runtime','windows-build','宛名はがき','宛名はがき.exe'),runtime=path.join(root,'.runtime');
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const hash=file=>require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 async function run(){

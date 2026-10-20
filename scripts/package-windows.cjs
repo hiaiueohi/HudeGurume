@@ -1,0 +1,15 @@
+const fs=require('node:fs'),path=require('node:path'),{spawnSync}=require('node:child_process'),crypto=require('node:crypto');
+const root=path.resolve(__dirname,'..'),dist=path.join(root,'dist');
+if(process.platform!=='win32')throw Error('Create the Windows distribution on Windows.');
+const check=JSON.parse(fs.readFileSync(path.join(root,'.runtime','exe-test-result.json'),'utf8'));
+const version=require('../package.json').version;if(!check.ok||!check.normalLaunch?.ok||check.version!==version)throw Error('Run the current version of test:exe before packaging.');
+require('./write-build-check.cjs');
+fs.mkdirSync(dist,{recursive:true});
+const pending=path.join(dist,'宛名はがき-Windows-x64.next.zip'),output=path.join(dist,'宛名はがき-Windows-x64.zip');
+if(fs.existsSync(pending))throw Error('A pending ZIP already exists. Review it before packaging again.');
+const command="$ErrorActionPreference='Stop'; Compress-Archive -LiteralPath '.runtime/windows-build/宛名はがき','.runtime/windows-build/はじめに.txt','.runtime/windows-build/動作確認結果.txt','.runtime/windows-build/SHA256.txt' -DestinationPath 'dist/宛名はがき-Windows-x64.next.zip' -CompressionLevel Optimal; Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip=[System.IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath 'dist/宛名はがき-Windows-x64.next.zip').Path); try { $entries=@{};foreach($entry in $zip.Entries){$entries[$entry.FullName.Replace('\\','/')]=$entry}; $base=(Resolve-Path -LiteralPath '.runtime/windows-build/宛名はがき').Path; foreach($source in (Get-ChildItem -LiteralPath $base -File -Recurse -Force)){$relative=$source.FullName.Substring($base.Length).TrimStart('\\').Replace('\\','/');$entry=$entries['宛名はがき/'+$relative];if(-not $entry -or $entry.Length -ne $source.Length){throw ('Missing ZIP file: '+$relative)}}; foreach($relative in @('宛名はがき.exe','resources/app.asar')){$stream=$entries['宛名はがき/'+$relative].Open();$algorithm=[System.Security.Cryptography.SHA256]::Create();try{$actual=[BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-','')}finally{$stream.Dispose();$algorithm.Dispose()};$expected=(Get-FileHash -LiteralPath (Join-Path $base $relative) -Algorithm SHA256).Hash;if($actual -ne $expected){throw ('ZIP hash mismatch: '+$relative)}} }finally{$zip.Dispose()}";
+const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',command],{cwd:root,windowsHide:true,stdio:'inherit'});
+if(result.error)throw result.error;if(result.status!==0)process.exit(result.status||1);
+const archive=path.join(root,'.runtime','previous-builds');fs.mkdirSync(archive,{recursive:true});if(fs.existsSync(output))fs.renameSync(output,path.join(archive,'distribution-'+Date.now()+'.zip'));
+fs.renameSync(pending,output);const hash=crypto.createHash('sha256').update(fs.readFileSync(output)).digest('hex');fs.writeFileSync(output+'.sha256',hash+'  宛名はがき-Windows-x64.zip\r\n');
+console.log('Verified distribution ZIP: '+output);

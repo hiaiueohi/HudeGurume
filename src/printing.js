@@ -1,7 +1,12 @@
 (function(root){
-  const $=s=>document.querySelector(s),native=root.postcardPrinter;let job=null,busy=false,token=0;
+  const $=s=>document.querySelector(s),native=root.postcardPrinter;let job=null,busy=false,token=0,pageIndex=0;
   function say(text,error=false){$('#printMessage').textContent=text;$('#printMessage').classList.toggle('error',error);}
-  function update(){const count=$('#printTestOnly').checked?1:job?.count;$('#printStart').textContent=(count||1)+'枚の印刷を開始';$('#printStart').disabled=busy||!$('#printerSelect').value;}
+  function preview(){
+    if(!job)return;const test=$('#printTestOnly').checked,count=test?1:job.count;pageIndex=Math.max(0,Math.min(count-1,pageIndex));const source=$('#printArea').children[pageIndex];
+    $('#printJobPreview').replaceChildren();if(source)$('#printJobPreview').append(source.cloneNode(true));
+    $('#printPreviewPage').textContent=test?'試し刷り：最初の1枚':(pageIndex+1)+' / '+count+'枚';$('#printPreviewPrevious').disabled=busy||pageIndex===0;$('#printPreviewNext').disabled=busy||pageIndex===count-1;
+  }
+  function update(){const test=$('#printTestOnly').checked,count=test?1:job?.count;$('#printStart').textContent=test?'まず1枚だけ試し刷り':(count||1)+'枚を印刷する';$('#printStart').disabled=busy||!$('#printerSelect').value;preview();}
   async function refresh(){
     if(!job||busy)return;const current=++token,previous=$('#printerSelect').value;$('#printerSelect').replaceChildren();$('#printStart').disabled=true;$('#refreshPrinters').disabled=true;say('プリンターを確認しています…');
     try{const result=await native.list();if(current!==token||!job)return;if(!result.ok)throw Error(result.error);
@@ -14,13 +19,14 @@
     if(busy||$('#printDialog').open)return;
     await document.fonts.ready;await Promise.all([...$('#printArea').querySelectorAll('img')].map(image=>image.decode()));
     if(!native){root.print();return;}
-    job={...options};$('#printJobSummary').textContent=options.side+' ・ 全'+options.count+'枚';$('#printTestOnly').checked=true;$('#printDriverDialog').checked=false;$('#printColor').checked=true;
-    $('#printTestOnly').closest('label').hidden=options.count===1;$('#printDialog').showModal();await refresh();
+    job={...options};pageIndex=0;$('#printJobSummary').textContent=options.side+' ・ 全'+options.count+'枚';$('#printTestOnly').checked=true;$('#printDriverDialog').checked=false;$('#printColor').checked=true;
+    $('#printTestOnly').closest('label').hidden=options.count===1;preview();$('#printDialog').showModal();await refresh();
   }
   function init(){
     const dialog=$('#printDialog');$('#printCancel').onclick=$('#printClose').onclick=()=>{if(!busy)dialog.close();};
     dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});dialog.addEventListener('close',()=>{if(dialog.open)return;job=null;token++;});
     $('#refreshPrinters').onclick=refresh;$('#printerSelect').onchange=$('#printTestOnly').onchange=update;
+    $('#printPreviewPrevious').onclick=()=>{pageIndex--;preview();};$('#printPreviewNext').onclick=()=>{pageIndex++;preview();};
     $('#printStart').onclick=async()=>{
       if(busy||!job||!$('#printerSelect').value)return;busy=true;update();
       for(const id of ['printClose','printCancel','refreshPrinters','printerSelect','printTestOnly','printColor','printDriverDialog'])$('#'+id).disabled=true;

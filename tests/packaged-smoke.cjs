@@ -1,11 +1,11 @@
 const fs=require('node:fs'),path=require('node:path'),net=require('node:net'),{spawn,spawnSync}=require('node:child_process');
 const {CDPClient}=require('./cdp-client.cjs');
-const root=path.resolve(__dirname,'..'),exe=path.join(root,'dist',process.argv.includes('--unpacked')?'win-unpacked':'宛名はがき','宛名はがき.exe');
+const root=path.resolve(__dirname,'..'),exe=path.join(root,'.runtime','windows-build',process.argv.includes('--unpacked')?'win-unpacked':'宛名はがき','宛名はがき.exe');
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const port=()=>new Promise(resolve=>{const server=net.createServer();server.listen(0,'127.0.0.1',()=>{const value=server.address().port;server.close(()=>resolve(value));});});
 async function endpoint(value,predicate=()=>true){for(let n=0;n<600;n++){try{const items=await (await fetch('http://127.0.0.1:'+value+'/json/list')).json(),found=items.find(predicate);if(found)return found;}catch(error){}await delay(50);}throw Error('Executable debugger did not become ready');}
 async function run(){
- if(!fs.existsSync(exe))throw Error('Build dist/宛名はがき/宛名はがき.exe first.');
+ if(!fs.existsSync(exe))throw Error('Run npm run build:win first.');
  const out=fs.mkdtempSync(path.join(root,'.runtime','exe-check-')),profile=path.join(out,'profile'),documents=path.join(out,'Documents');fs.mkdirSync(profile);fs.mkdirSync(documents);
  const nodePort=await port(),rendererPort=await port(),env={...process.env};delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_OPTIONS;
  let child,node,renderer,exited=false;const logs=[];const result={ok:false,executable:path.relative(root,exe),outputFolder:path.relative(root,out)};
@@ -25,10 +25,19 @@ async function run(){
   result.packaged=true;result.asar=true;result.version=runtime.version;
   await node.evaluate('global.__exeTestPrintJobs=[];const wc=global.__exeTestElectron.BrowserWindow.getAllWindows().find(w=>w.getTitle()==="宛名はがき").webContents;wc.getPrintersAsync=async()=>[{name:"Test postcard printer",displayName:"テスト専用",isDefault:true,status:0}];wc.print=(options,callback)=>{global.__exeTestPrintJobs.push(options);callback(true)};true');
   result.addressBook=await renderer.evaluate(fs.readFileSync(path.join(__dirname,'ui-scenario.js'),'utf8'));
+  await renderer.send('Emulation.setEmulatedMedia',{media:'print'});
+  try{
+   result.postalFrames=await renderer.evaluate(fs.readFileSync(path.join(__dirname,'postal-print-scenario.js'),'utf8'));
+   const bounds=await renderer.evaluate('(()=>{const r=document.querySelector("#printArea .front-card").getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,scale:1}})()');
+   const printed=await renderer.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:bounds});fs.writeFileSync(path.join(out,'exe-postal-print.png'),Buffer.from(printed.data,'base64'));
+  }finally{await renderer.send('Emulation.setEmulatedMedia',{media:''});}
   result.frontEditing=await renderer.evaluate(fs.readFileSync(path.join(__dirname,'front-scenario.js'),'utf8'));
   result.designs=await renderer.evaluate(fs.readFileSync(path.join(__dirname,'design-scenario.js'),'utf8'));
   const screenshot=await renderer.send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(out,'exe-designs.png'),Buffer.from(screenshot.data,'base64'));
   const jobs=await node.evaluate('global.__exeTestPrintJobs');if(jobs.length!==3||jobs.some(j=>j.pageSize.width!==100000||j.pageSize.height!==148000))throw Error('Packaged printing bridge failed');result.printing={simulated:true,jobs:jobs.length,postcardSize:true};
+  result.usability=await renderer.evaluate(fs.readFileSync(path.join(__dirname,'usability-scenario.js'),'utf8'));
+  await renderer.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+  const reviewScreenshot=await renderer.send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(out,'exe-review.png'),Buffer.from(reviewScreenshot.data,'base64'));
   const addressFolder=path.join(documents,'宛名はがき');if(JSON.parse(fs.readFileSync(path.join(addressFolder,'住所録.json'),'utf8')).records.length!==3||!fs.existsSync(path.join(addressFolder,'住所録.backup.json')))throw Error('Packaged address book save failed');
   if(!fs.existsSync(path.join(addressFolder,'年賀状デザイン','2027年_未（ひつじ）','01_和紙と金彩_背景.png')))throw Error('Packaged assets did not install from ASAR');
   result.documentSave=true;result.bundledAssets=true;

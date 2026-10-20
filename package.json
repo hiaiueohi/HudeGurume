@@ -1,6 +1,6 @@
 {
   "name": "atena-postcard",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Windows向け年賀はがき宛名アプリ",
   "main": "desktop.cjs",
@@ -10,6 +10,7 @@
     "test:ui": "node tests/run-desktop.cjs",
     "test:startup": "node tests/run-startup.cjs",
     "build:win": "node scripts/build-windows.cjs",
+    "package:win": "node scripts/package-windows.cjs",
     "test:exe": "node tests/packaged-smoke.cjs",
     "test:exe:launch": "node tests/packaged-launch.cjs"
   },

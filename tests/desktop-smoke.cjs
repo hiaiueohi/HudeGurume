@@ -94,6 +94,13 @@ app.whenReady().then(async()=>{
     await new Promise(resolve=>setTimeout(resolve,100));
     const printFailure=await win.webContents.executeJavaScript("({error:document.querySelector('#printMessage').textContent,retry:!document.querySelector('#printStart').disabled})");
     if(!printFailure.error.includes('Invalid printer settings')||!printFailure.retry)throw Error('Print failure must be displayed and allow retry');result.printing.driverError=true;
+    win.webContents.print=(options,callback)=>{printerJobs.push(options);callback(true);};
+    await win.webContents.executeJavaScript("document.querySelector('#printCancel').click()");
+    result.usability=await win.webContents.executeJavaScript(fs.readFileSync(path.join(__dirname,'usability-scenario.js'),'utf8'));
+    await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');await new Promise(resolve=>setTimeout(resolve,150));
+    await win.webContents.capturePage().then(img=>fs.writeFileSync(path.join(root,'ui-review.png'),img.toPNG()));
+    await win.webContents.executeJavaScript("document.querySelector('#reviewPrint').click()");await new Promise(resolve=>setTimeout(resolve,150));
+    await win.webContents.capturePage().then(img=>fs.writeFileSync(path.join(root,'ui-print-preview.png'),img.toPNG()));
     await win.webContents.executeJavaScript("document.querySelector('#printCancel').click();document.querySelector('#designTab').click()");
     await win.webContents.executeJavaScript('window.scrollTo(0,0); new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
     await new Promise(resolve=>setTimeout(resolve,200));

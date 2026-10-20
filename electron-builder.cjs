@@ -2,7 +2,7 @@ module.exports={
   appId:'jp.atena.postcard',
   productName:'宛名はがき',
   executableName:'宛名はがき',
-  directories:{output:'dist',buildResources:'build'},
+  directories:{output:'.runtime/windows-build',buildResources:'build'},
   electronDist:'node_modules/electron/dist',
   asar:true,
   compression:'normal',

@@ -7,13 +7,17 @@ let state = {records: [], sender: {}, offsetX: 0, offsetY: 0};
 let active = null;
 let selected = new Set();
 let importFile = null, pendingImport = [], importToken = 0;
+let selectedOnly=false,statusTimer;
+function notifyChange(){window.dispatchEvent(new Event('postcard-changed'));}
 
 function setStatus(message, error = false) {
+  clearTimeout(statusTimer);
   for (const node of [$('#status'), document.querySelector('dialog[open] .dialog-message')].filter(Boolean)) {
     node.textContent = message;
     node.hidden = !message;
     node.classList.toggle('error', error);
   }
+  if(message&&!error)statusTimer=setTimeout(()=>{$('#status').hidden=true;},5000);
 }
 function validate(s) {
   return C.validateState(s);
@@ -50,6 +54,7 @@ function commit(next, message, {recover = false} = {}) {
       state = next;
     }
     updateStorageLabel();
+    notifyChange();
     if (message) setStatus(message);
     return true;
   } catch (error) {
@@ -78,9 +83,11 @@ for (const button of document.querySelectorAll('[data-close]')) {
   button.onclick = () => $('#' + button.dataset.close).close();
 }
 function filteredRecords() {
-  const query = $('#search').value.trim();
-  return state.records.filter(r => [r.name, r.address, r.building, r.zip].join(' ').includes(query));
+  const normalize=text=>String(text).normalize('NFKC').toLocaleLowerCase().replace(/[\s\-ー－]/g,'');
+  const query = normalize($('#search').value);
+  return state.records.filter(r => (!selectedOnly||selected.has(r.id))&&normalize([r.name,r.address,r.building,r.zip].join(' ')).includes(query));
 }
+function refilter(){const visible=filteredRecords();if(!visible.some(r=>r.id===active))active=visible[0]?.id||null;renderList();preview();}
 function updateSelection() {
   const count = state.records.filter(r => selected.has(r.id)).length;
   $('#selectionCount').textContent = '印刷対象 ' + count + '人';
@@ -95,6 +102,7 @@ function updateSelection() {
   $('#selectAll').disabled = visible.length === 0;
   $('#selectAllLabel').textContent = $('#search').value.trim() ? '検索結果をすべて選択' : 'すべて選択';
   updatePreviewLabels();
+  notifyChange();
 }
 function renderList() {
   const visible = filteredRecords();
@@ -102,6 +110,8 @@ function renderList() {
   $('#totalCount').textContent = state.records.length + '人';
   $('#emptyState').hidden = state.records.length > 0;
   $('#noResults').hidden = !state.records.length || visible.length > 0;
+  $('#noResults').textContent=selectedOnly?'印刷する人が見つかりません。「全員」に戻して宛先を選べます。':'一致する宛先がありません。検索する言葉を変えてください。';
+  $('#clearSearch').hidden=!$('#search').value;
   $('#visibleCount').textContent = visible.length + ' / ' + state.records.length + '人を表示 ・ 変更を自動保存';
   for (const r of visible) {
     const row = el('tr', 'entry' + (r.id === active ? ' active' : ''));
@@ -110,7 +120,7 @@ function renderList() {
     check.type = 'checkbox';
     check.checked = selected.has(r.id);
     check.setAttribute('aria-label', r.name + 'を印刷対象にする');
-    check.onchange = () => { check.checked ? selected.add(r.id) : selected.delete(r.id); updateSelection(); };
+    check.onchange = () => { check.checked ? selected.add(r.id) : selected.delete(r.id); selectedOnly?refilter():renderList(); };
     checkCell.append(check);
     const nameCell = el('td');
     const name = el('button', 'person-button', r.name);
@@ -126,6 +136,7 @@ function renderList() {
     edit.onclick = () => openEditor(r.id);
     editCell.append(edit);
     row.append(checkCell, nameCell, addressCell, editCell);
+    row.onclick=event=>{if(!event.target.closest('input,button,a'))choose(r.id);};
     $('#list').append(row);
   }
   updateSelection();
@@ -173,11 +184,18 @@ function updatePreviewLabels() {
   $('#previewCaption').textContent = r ? r.name + (r.honorific ? ' ' + r.honorific : '') : '宛先を追加すると、ここに表示されます。';
   $('#editActive').disabled = !r;
   $('#openFrontLayoutEditor').disabled=!r;
+  const visible=filteredRecords(),index=visible.findIndex(x=>x.id===active);
+  $('#previousRecipient').disabled=index<=0;$('#nextRecipient').disabled=index<0||index===visible.length-1;
+  $('#recipientPage').textContent=index>=0?(index+1)+' / '+visible.length:r?'一覧の対象外':'宛先の記入例';
+  $('#activeRecipientSelected').disabled=!r;$('#activeRecipientSelected').checked=Boolean(r&&selected.has(r.id));
 }
 function preview() {
   const r = state.records.find(r => r.id === active) || {name: '山田 太郎', honorific: '様', zip: '1234567', address: '東京都千代田区丸の内1-2-3', building: 'サンプルマンション101号室'};
   $('#preview').replaceChildren(card(r));
+  if(state.records.length&&!active){const empty=el('p','preview-no-result','該当する宛先がありません。検索や表示の絞り込みを変更してください。');$('#preview').replaceChildren(empty);$('#previewCaption').textContent='表示できる宛先がありません';}
   updatePreviewLabels();
+  if(state.records.length&&!active){$('#previewCaption').textContent='表示できる宛先がありません';$('#previewBadge').textContent='該当なし';}
+  notifyChange();
 }
 $('#recipient').onsubmit = event => {
   event.preventDefault();
@@ -198,12 +216,17 @@ $('#add').onclick = () => openEditor();
 $('#editActive').onclick = () => openEditor(active);
 $('#openFrontLayoutEditor').onclick=$('#preview').onclick=openFrontLayoutEditor;
 $('#preview').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openFrontLayoutEditor();}};
-$('#search').oninput = renderList;
+$('#search').oninput = refilter;
+$('#clearSearch').onclick=()=>{$('#search').value='';refilter();$('#search').focus();};
+for(const [id,only]of [['showAllRecipients',false],['showSelectedRecipients',true]])$('#'+id).onclick=()=>{selectedOnly=only;for(const [other,on]of [['showAllRecipients',!only],['showSelectedRecipients',only]]){$('#'+other).classList.toggle('active',on);$('#'+other).setAttribute('aria-pressed',String(on));}refilter();};
+for(const [id,direction]of [['previousRecipient',-1],['nextRecipient',1]])$('#'+id).onclick=()=>{const visible=filteredRecords(),index=visible.findIndex(r=>r.id===active),next=visible[index+direction];if(next)choose(next.id);};
+$('#activeRecipientSelected').onchange=event=>{if(!active)return;event.target.checked?selected.add(active):selected.delete(active);selectedOnly?refilter():renderList();};
+$('#emptyAdd').onclick=()=>$('#add').click();$('#emptyImport').onclick=()=>$('#openImport').click();
 $('#selectAll').onchange = event => {
   for (const r of filteredRecords()) event.target.checked ? selected.add(r.id) : selected.delete(r.id);
-  renderList();
+  selectedOnly?refilter():renderList();
 };
-$('#clearSelection').onclick = () => { selected.clear(); renderList(); };
+$('#clearSelection').onclick = () => { selected.clear(); selectedOnly?refilter():renderList(); };
 $('#delete').onclick = () => {
   const id = $('#recipient').elements.id.value;
   const r = state.records.find(r => r.id === id);
@@ -312,14 +335,15 @@ for (const key of ['offsetX', 'offsetY']) $('#' + key).oninput = event => {
   if (commit({...state, [key]:value})) preview();
 };
 $('#newyear').onchange = preview;
-$('#print').onclick = async () => {
+async function printFront() {
   const records = state.records.filter(r => selected.has(r.id));
   if (!records.length) return setStatus('印刷する宛先にチェックを付けてください。', true);
   const invalid = records.find(r => r.zip && !C.validZip(r.zip));
   if (invalid) return setStatus(invalid.name + 'さんの郵便番号を確認してください。', true);
   $('#printArea').replaceChildren(...records.map(card));
-  await PostcardPrinting.open({side:'宛名面（おもて）',count:records.length});
-};
+  try{await PostcardPrinting.open({side:'宛名面（おもて）',count:records.length});}catch(error){setStatus('印刷の準備ができませんでした。'+error.message,true);}
+}
+$('#print').onclick=printFront;
 function init() {
   fill($('#sender'), state.sender);
   $('#offsetX').value = state.offsetX; $('#offsetY').value = state.offsetY;
@@ -342,3 +366,5 @@ selected = new Set(state.records.map(r => r.id));
 init();
 window.PostcardDesignApp.init({getSender:()=>state.sender});
 window.PostcardPrinting.init();
+window.PostcardAddressApp={summary:()=>({total:state.records.length,selected:state.records.filter(r=>selected.has(r.id)),ready:storageReady}),card:id=>{const record=state.records.find(r=>r.id===id);return record?card(record):null;},choose,edit:openFrontLayoutEditor,print:printFront};
+window.PostcardWorkflow.init();

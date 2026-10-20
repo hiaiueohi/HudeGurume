@@ -41,6 +41,7 @@
       const active=button.dataset.id===item.id;
       button.classList.toggle('selected',active); button.setAttribute('aria-pressed',String(active));
     });
+    root.dispatchEvent(new Event('postcard-changed'));
   }
   function flush() {
     clearTimeout(saveTimer);
@@ -106,15 +107,6 @@
       if(!$('#designSaveStatus').textContent)say('絵柄をクリックして選んでください。変更は自動保存されます。');
     }catch(error){$('#designGrid').textContent='デザインを開けませんでした。'+error.message;say('デザインの保存先を確認してから、アプリを起動し直してください。',true);}
   }
-  function setTab(design,focus = false) {
-    $('#addressPane').hidden=design;$('#designPane').hidden=!design;
-    $('.workflow').hidden=design;
-    for(const [selector,active]of [['#addressTab',!design],['#designTab',design]]){
-      const tab=$(selector);tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;
-      if(active&&focus)tab.focus();
-    }
-    if(design)start();else flush();
-  }
   function updateDraft(event) {
     if(!started)return;
     try {
@@ -177,10 +169,6 @@
     root.DesignLayoutEditor.init();
     $('#designPreview').onclick=$('#openLayoutEditor').onclick=openLayoutEditor;
     $('#designPreview').onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openLayoutEditor();}};
-    $('#addressTab').onclick=()=>setTab(false);$('#designTab').onclick=()=>setTab(true);
-    for(const tab of [$('#addressTab'),$('#designTab')])tab.onkeydown=event=>{
-      if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();setTab(event.key==='End'||(event.key!=='Home'&&tab.id==='addressTab'),true);}
-    };
     for(const button of $('#designFilters').querySelectorAll('button'))button.onclick=()=>{
       category=button.dataset.category;
       for(const other of $('#designFilters').querySelectorAll('button')){other.classList.toggle('active',other===button);other.setAttribute('aria-pressed',String(other===button));}
@@ -195,5 +183,5 @@
     };
     root.addEventListener('beforeunload',()=>{if(started)flush();});
   }
-  root.PostcardDesignApp={init,refresh:()=>{if(started)preview();},flush};
+  root.PostcardDesignApp={init,refresh:()=>{if(started)preview();},flush,prepare:()=>{start();return started;},review:()=>{if(!started)return null;return {name:selectedItem().name,card:root.DesignRenderer.card(selectedItem(),project,getSender())};},edit:openLayoutEditor,print};
 })(window);
