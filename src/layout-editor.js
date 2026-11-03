@@ -1,5 +1,6 @@
 (function(root){
   const $=s=>document.querySelector(s),clone=v=>JSON.parse(JSON.stringify(v)),mm=96/25.4;
+  let rangeTarget=null,rangeShown='',pendingRange=null;
   let session=null,model,draft,content,initial,initialContent,selected,undo=[],redo=[],drag=null,zoom=1,fitMode=true,paper,observer;
   const capture=()=>({draft:clone(draft),content:clone(content)});
   const changed=()=>JSON.stringify(initial)!==JSON.stringify(draft)||JSON.stringify(initialContent)!==JSON.stringify(content);
@@ -11,11 +12,54 @@
       const label=document.createElement('label');label.textContent=field.label;
       const input=document.createElement(field.rows?'textarea':'input');input.dataset.field=field.key;input.value=content[field.key]||'';input.maxLength=field.maxLength||300;
       if(field.rows)input.rows=field.rows;
-      input.oninput=()=>{const before=capture();content[field.key]=input.value;rebuild();paint();remember(before);};
+      input.oninput=()=>{const before=capture();shiftSizes(field.key,content[field.key],input.value);content[field.key]=input.value;rebuild();paint();remember(before);};
+      if(sizeKeys().includes(field.key)){const track=()=>{rangeTarget={key:field.key,start:input.selectionStart,end:input.selectionEnd};updateRangeUI();};for(const type of ['select','keyup','mouseup','focus','input'])input.addEventListener(type,track);}
       label.append(input);container.append(label);
     }
+    rangeTarget=null;updateRangeUI();
     $('#layoutTextNote').textContent=session.textNote||'文面はこの年賀状に保存します。配置と文字の向きは下で適用先を選べます。';
     $('#layoutTextNote').hidden=!container.children.length;
+  }
+  // 文字欄で選んだ部分だけ大きさを変える。宛先ごとに文字の並びが違うので、この宛先だけに保存する。
+  const sizeKeys=()=>session?.rangeSizes||[];
+  function shiftSizes(key,before,after){
+    const ranges=content.textSizes?.[key];if(!ranges)return;
+    const next=root.PostcardCore.shiftRanges(before,after,ranges),sizes={...content.textSizes};
+    if(next.length)sizes[key]=next;else delete sizes[key];
+    content.textSizes=sizes;
+  }
+  function currentRange(){
+    const t=rangeTarget;if(!t||t.end<=t.start||!$('#layoutTextFields [data-field="'+t.key+'"]'))return null;
+    return String(content[t.key]||'').slice(t.start,t.end).trim()?t:null;
+  }
+  function updateRangeUI(){
+    const panel=$('#layoutRangeSize');if(!panel)return;
+    panel.hidden=!session||!sizeKeys().some(key=>$('#layoutTextFields [data-field="'+key+'"]'));
+    if(panel.hidden)return;
+    const t=currentRange(),text=t?String(content[t.key]).slice(t.start,t.end):'';
+    $('#layoutRangeSelection').textContent=t?'「'+(text.length>14?text.slice(0,14)+'…':text)+'」（'+text.length+'文字）を選択中':'上の文字欄で、大きさを変えたい部分をドラッグして選んでください。';
+    $('#layoutRangeSelection').classList.toggle('active',Boolean(t));
+    for(const id of ['layoutRangeApply','layoutRangeClear','layoutRangeScale','layoutRangeSmaller','layoutRangeBigger'])$('#'+id).disabled=!t;
+    const shown=t?[t.key,t.start,t.end].join(':'):'';
+    if(t&&shown!==rangeShown){const r=(content.textSizes?.[t.key]||[]).find(r=>r.start<=t.start&&r.end>=t.end);$('#layoutRangeScale').value=Math.round((r?.scale||1)*100);}
+    rangeShown=shown;
+    const sized=Object.values(content.textSizes||{}).reduce((n,list)=>n+list.length,0);
+    $('#layoutRangeCount').textContent=sized?'大きさを変えた部分：'+sized+'か所':'';
+  }
+  function setRangeSize(target,scale){
+    const before=capture(),sizes={...content.textSizes},next=root.PostcardCore.setRange(sizes[target.key],target.start,target.end,scale);
+    if(next.length)sizes[target.key]=next;else delete sizes[target.key];
+    content.textSizes=sizes;rebuild();paint();remember(before);rangeShown='';
+    const input=$('#layoutTextFields [data-field="'+target.key+'"]');if(input){input.focus();input.setSelectionRange(target.start,target.end);}
+    rangeTarget={...target};updateRangeUI();
+    status(Math.abs(scale-1)<.001?'選んだ部分を元の大きさに戻しました（この宛先だけ）。':'選んだ部分の文字を'+Math.round(scale*100)+'%の大きさにしました（この宛先だけ）。保存すると反映されます。');
+  }
+  function requestRangeSize(){
+    const t=currentRange(),value=Number($('#layoutRangeScale').value);if(!t)return;
+    if(!Number.isFinite(value)||value<30||value>300){status('選んだ部分の大きさは30〜300%で入力してください。',true);return;}
+    pendingRange={...t,scale:value/100};
+    $('#rangeSizeWarningText').textContent='「'+String(content[t.key]).slice(t.start,t.end)+'」を'+value+'%の大きさにします。';
+    $('#rangeSizeWarning').showModal();$('#rangeSizeOK').focus();
   }
   function updateControls(){
     const p=draft[selected],node=paper.querySelector('[data-layout-element="'+selected+'"]'),bg=selected==='background';
@@ -33,11 +77,12 @@
     for(const button of $('#layoutLayers').querySelectorAll('button')){const active=button.dataset.element===selected;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));}
     for(const n of paper.querySelectorAll('[data-layout-element]'))n.classList.toggle('layout-selected',n.dataset.layoutElement===selected);
   }
-  function rebuild(){paper=session.render(currentLayout(),content);const guide=document.createElement('div');guide.id='layoutCenterGuide';guide.className='layout-center-guide';guide.hidden=true;$('#layoutPaper').replaceChildren(paper,guide);}
+  function rebuild(){paper=session.render(currentLayout(),content);const guide=document.createElement('div');guide.id='layoutCenterGuide';guide.className='layout-center-guide';guide.hidden=true;$('#layoutPaper').replaceChildren(paper,guide);
+    for(const button of $('#layoutLayers').querySelectorAll('button'))button.disabled=!paper.querySelector('[data-layout-element="'+button.dataset.element+'"]');}
   function paint(){session.applyPositions(paper,currentLayout(),content);updateControls();}
   function select(key){if(!paper.querySelector('[data-layout-element="'+key+'"]'))return;selected=key;updateControls();fields();}
   function remember(before){if(JSON.stringify(before)===JSON.stringify(capture()))return;undo.push(before);if(undo.length>50)undo.shift();redo=[];updateControls();status('変更をプレビューしています。適用先を選んで保存してください。');}
-  function restore(snapshot){draft=snapshot.draft;content=snapshot.content;rebuild();paint();fields();}
+  function restore(snapshot){draft=snapshot.draft;content=snapshot.content;rebuild();paint();if(!paper.querySelector('[data-layout-element="'+selected+'"]'))selected=model.elements.find(key=>paper.querySelector('[data-layout-element="'+key+'"]'));updateControls();fields();}
   function undoAction(){if(!undo.length||drag)return;redo.push(capture());restore(undo.pop());status('ひとつ前の編集に戻しました。');}
   function redoAction(){if(!redo.length||drag)return;undo.push(capture());restore(redo.pop());status('編集をやり直しました。');}
   function setZoom(value){zoom=Math.max(.4,Math.min(1.6,value));$('#layoutZoom').value=Math.round(zoom*100);$('#layoutZoomLabel').textContent=Math.round(zoom*100)+'%';$('#layoutPaperWrapper').style.width=100*mm*zoom+'px';$('#layoutPaperWrapper').style.height=148*mm*zoom+'px';$('#layoutPaper').style.transform='scale('+zoom+')';}
@@ -100,6 +145,11 @@
     $('#layoutResetSelected').onclick=()=>{const before=capture();draft[selected]={...draft[selected],x:0,y:0,...(selected==='background'?{scale:1}:{})};rebuild();paint();remember(before);};
     for(const radio of dialog.querySelectorAll('input[name=layoutScope]'))radio.onchange=updateControls;
     $('#layoutApply').onclick=applyChanges;
+    $('#layoutRangeApply').onclick=requestRangeSize;
+    $('#layoutRangeClear').onclick=()=>{const t=currentRange();if(t)setRangeSize(t,1);};
+    for(const [id,step]of [['layoutRangeSmaller',-10],['layoutRangeBigger',10]])$('#'+id).onclick=()=>{$('#layoutRangeScale').value=Math.max(30,Math.min(300,(Number($('#layoutRangeScale').value)||100)+step));};
+    $('#rangeSizeCancel').onclick=()=>{pendingRange=null;$('#rangeSizeWarning').close();};
+    $('#rangeSizeOK').onclick=()=>{const target=pendingRange;pendingRange=null;$('#rangeSizeWarning').close();if(target&&session)setRangeSize(target,target.scale);};
     dialog.addEventListener('keydown',event=>{
       if(!session)return;
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){event.preventDefault();applyChanges();return;}

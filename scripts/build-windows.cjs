@@ -2,6 +2,9 @@ const {spawnSync}=require('node:child_process'),fs=require('node:fs'),path=requi
 const root=path.resolve(__dirname,'..'),build=path.join(root,'.runtime','windows-build');
 if(process.platform!=='win32'||process.arch!=='x64')throw Error('Build this release on Windows x64.');
 require('./make-app-icon.cjs');
+// 画面テスト用にElectronのフォルダーへ置いた別名のコピーは、配布物に混ぜない。
+// 画面テストでElectronが書き出すdebug.logも同じフォルダーに残るので、配布前に取り除く。
+for(const name of ['atena-dev.exe','debug.log']){const file=path.join(root,'node_modules','electron','dist',name);if(fs.existsSync(file))fs.rmSync(file);}
 const env={...process.env,CSC_IDENTITY_AUTO_DISCOVERY:'false'};delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_OPTIONS;
 const cli=require.resolve('electron-builder/cli.js');
 const result=spawnSync(process.execPath,[cli,'--config','electron-builder.cjs','--win','--x64','--publish','never'],{cwd:root,env,stdio:'inherit',windowsHide:true});
@@ -10,9 +13,12 @@ const source=path.join(build,'win-unpacked'),destination=path.join(build,'宛名
 // Archive prior generated output without deleting user files or installation data.
 for(const target of [source,destination])if(!path.resolve(target).startsWith(build+path.sep))throw Error('Output must stay inside the build folder.');
 const archive=path.join(root,'.runtime','previous-builds');fs.mkdirSync(archive,{recursive:true});
-if(fs.existsSync(destination))fs.renameSync(destination,path.join(archive,'app-'+Date.now()));
-fs.renameSync(source,destination);
-const blockedPortable=path.join(build,'宛名はがき.exe');if(fs.existsSync(blockedPortable))fs.renameSync(blockedPortable,path.join(archive,'blocked-portable-'+Date.now()+'.exe'));
+// ビルド直後はウイルス対策ソフトが出力フォルダーを開いていることがあるため、少し待って繰り返す。
+const move=(from,to)=>{for(let attempt=0;;attempt++){try{fs.renameSync(from,to);return;}catch(error){if(error.code!=='EPERM'&&error.code!=='EBUSY'||attempt>=20)throw error;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,500);}}};
+if(fs.existsSync(destination))move(destination,path.join(archive,'app-'+Date.now()));
+move(source,destination);
+const strayLog=path.join(destination,'debug.log');if(fs.existsSync(strayLog))fs.rmSync(strayLog);
+const blockedPortable=path.join(build,'宛名はがき.exe');if(fs.existsSync(blockedPortable))move(blockedPortable,path.join(archive,'blocked-portable-'+Date.now()+'.exe'));
 const file=path.join(destination,'宛名はがき.exe');if(!fs.existsSync(file))throw Error('Packaged executable was not created.');
 const hash=require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 fs.writeFileSync(path.join(build,'SHA256.txt'),hash+'  宛名はがき/宛名はがき.exe\r\n');

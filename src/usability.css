@@ -10,3 +10,22 @@ body{padding-bottom:96px;font-size:15px}.app-header{padding:15px 26px}.brand p{f
 #preview{height:clamp(180px,calc(100vh - 500px),340px)}.review-card-panel>.muted{margin:8px 0 0;line-height:1.5}.review-card-panel>.text-button{margin-top:8px}.review-print-panel>.muted{line-height:1.55}
 @media(max-height:800px){.review-paper-note{padding:10px;margin:12px 0;font-size:10px;line-height:1.5}.review-paper-note br{display:none}.review-paper-note strong{font-size:13px;margin-left:7px}}
 .layout-editor-header>div:first-child{min-width:0}.layout-editor-header h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:430px}
+.print-range{border-top:1px solid #e6ece8;padding-top:10px;margin-bottom:12px;font-size:12px;color:#51695c}
+.print-range summary{cursor:pointer;font-weight:600;color:#2c5a46}
+.print-range.disabled{opacity:.55}
+.print-range-row{display:flex;align-items:flex-end;gap:10px;margin:8px 0}
+.print-range-row label{font-size:11px;color:#51695c}
+.print-range-row input{width:72px;display:block;margin-top:4px;padding:7px;border:1px solid #cedbd3;border-radius:5px}
+#printRangeHint{margin:0}
+.print-dialog-body .print-settings-column .footer-right{display:flex;gap:8px}
+#printDialog .dialog-footer{display:flex;justify-content:space-between;align-items:center;gap:8px}
+#printDialog .dialog-footer .footer-right{display:flex;gap:8px}
+.address-table .edit-column{width:168px}.row-actions{white-space:nowrap;text-align:right}.row-actions button+button{margin-left:6px}
+.memo-button{font-size:12px;padding:5px 7px;font-weight:500;border-color:#d7e3db;position:relative}
+.memo-button.has-memo{border-color:#d9b44a;background:#fff8e1;color:#6b5100}
+.memo-button.has-memo::after{content:'';position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:#d9a400;border:1.5px solid #fff}
+#memoDialog{width:min(560px,calc(100vw - 32px))}#memoText{width:100%;min-height:220px;resize:vertical;font:inherit;line-height:1.6;box-sizing:border-box}
+.memo-count{text-align:right;margin:4px 0 0}
+.list-footer{align-items:center}.list-export{display:flex;align-items:center;gap:6px}.list-export-label{font-size:11px;color:#748984;margin-right:2px}
+.list-export button{font-size:12px;padding:5px 10px;font-weight:600;border-color:#d7e3db}.list-export .export-excel{background:#1d6f42;border-color:#1d6f42;color:#fff}.list-export .export-excel:hover:not(:disabled){background:#185c37}
+.list-export button:disabled{opacity:.45;cursor:not-allowed}

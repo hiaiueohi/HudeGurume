@@ -85,7 +85,7 @@ for (const button of document.querySelectorAll('[data-close]')) {
 function filteredRecords() {
   const normalize=text=>String(text).normalize('NFKC').toLocaleLowerCase().replace(/[\s\-ー－]/g,'');
   const query = normalize($('#search').value);
-  return state.records.filter(r => (!selectedOnly||selected.has(r.id))&&normalize([r.name,r.address,r.building,r.zip].join(' ')).includes(query));
+  return state.records.filter(r => (!selectedOnly||selected.has(r.id))&&normalize([r.name,r.address,r.building,r.zip,r.memo||''].join(' ')).includes(query));
 }
 function refilter(){const visible=filteredRecords();if(!visible.some(r=>r.id===active))active=visible[0]?.id||null;renderList();preview();}
 function updateSelection() {
@@ -108,6 +108,7 @@ function renderList() {
   const visible = filteredRecords();
   $('#list').replaceChildren();
   $('#totalCount').textContent = state.records.length + '人';
+  $('#exportExcel').disabled = $('#exportListCSV').disabled = !state.records.length;
   $('#emptyState').hidden = state.records.length > 0;
   $('#noResults').hidden = !state.records.length || visible.length > 0;
   $('#noResults').textContent=selectedOnly?'印刷する人が見つかりません。「全員」に戻して宛先を選べます。':'一致する宛先がありません。検索する言葉を変えてください。';
@@ -129,12 +130,17 @@ function renderList() {
     nameCell.append(name);
     if (r.joint) nameCell.append(el('span', 'name-caption', '連名あり'));
     const addressCell = el('td', 'row-address');
-    addressCell.append(el('span', 'row-zip', r.zip ? '〒 ' + r.zip : '郵便番号未入力'), el('span', '', [r.address, r.building].filter(Boolean).join(' ')));
+    addressCell.append(el('span', 'row-zip', r.zip ? '〒 ' + C.formatZip(r.zip) : '郵便番号未入力'), el('span', '', [r.address, r.building].filter(Boolean).join(' ')));
     const editCell = el('td');
     const edit = el('button', 'edit-button', '編集');
     edit.setAttribute('aria-label', r.name + 'の宛先を編集');
     edit.onclick = () => openEditor(r.id);
-    editCell.append(edit);
+    const memo = el('button', 'memo-button' + (r.memo ? ' has-memo' : ''), 'メモを開く');
+    memo.setAttribute('aria-label', r.name + 'のメモを開く' + (r.memo ? '（メモあり）' : ''));
+    if (r.memo) memo.title = r.memo.length > 80 ? r.memo.slice(0, 80) + '…' : r.memo;
+    memo.onclick = () => openMemo(r.id);
+    editCell.className = 'row-actions';
+    editCell.append(edit, memo);
     row.append(checkCell, nameCell, addressCell, editCell);
     row.onclick=event=>{if(!event.target.closest('input,button,a'))choose(r.id);};
     $('#list').append(row);
@@ -152,6 +158,37 @@ function openEditor(id = null) {
   showDialog('recipientDialog');
   $('#recipient').elements.name.focus();
 }
+function openMemo(id) {
+  const record = state.records.find(r => r.id === id);
+  if (!record) return;
+  fill($('#memoForm'), {id, memo: record.memo || ''});
+  $('#memoTitle').textContent = record.name + (record.honorific ? ' ' + record.honorific : '') + 'のメモ';
+  $('#memoClear').hidden = !record.memo;
+  updateMemoCount();
+  showDialog('memoDialog');
+  $('#memoText').focus();
+}
+function updateMemoCount() { $('#memoCount').textContent = $('#memoText').value.length + ' / ' + C.MEMO_LIMIT + '文字'; }
+function saveMemo(text) {
+  const id = $('#memoForm').elements.id.value, record = state.records.find(r => r.id === id);
+  if (!record) return $('#memoDialog').close();
+  const next = {...record};
+  if (text.trim()) next.memo = text.trimEnd(); else delete next.memo;
+  if (!commit({...state, records: state.records.map(r => r.id === id ? next : r)}, next.memo ? record.name + 'さんのメモを保存しました。' : record.name + 'さんのメモを消しました。')) return;
+  $('#memoDialog').close();
+  renderList();
+}
+// 住所録の画面で文字を書き換えても、文字の一部だけ変えた大きさが同じ文字を指し続けるようにする。
+function resizedTexts(sizes, before, after) {
+  const next = {};
+  for (const [key, ranges] of Object.entries(sizes || {})) {
+    const old = before(key), value = after(key);
+    const list = value === undefined ? ranges : C.shiftRanges(old, value, ranges);
+    if (list.length) next[key] = list;
+  }
+  return next;
+}
+function withoutEmpty(record) { if (!record.textSizes || !Object.keys(record.textSizes).length) delete record.textSizes; return record; }
 function card(r) {
   return FrontRenderer.card(r,state,$('#newyear').checked);
 }
@@ -159,16 +196,20 @@ function openFrontLayoutEditor(){
   const record=state.records.find(r=>r.id===active);if(!record)return;
   const sender=record.senderOverride||state.sender;
   const content={...record,senderName:sender.name||'',senderAddress:sender.address||'',senderBuilding:sender.building||'',senderZip:sender.zip||'',yearLabel:record.yearLabel??'年賀'};
-  const makeRecord=text=>({...record,name:text.name,honorific:text.honorific,joint:text.joint,zip:text.zip,address:text.address,building:text.building,yearLabel:text.yearLabel,senderOverride:{name:text.senderName,address:text.senderAddress,building:text.senderBuilding,zip:text.senderZip}});
+  const makeRecord=text=>({...record,textSizes:text.textSizes||{},name:text.name,honorific:text.honorific,joint:text.joint,zip:text.zip,address:text.address,building:text.building,yearLabel:text.yearLabel,senderOverride:{name:text.senderName,address:text.senderAddress,building:text.senderBuilding,zip:text.senderZip}});
   DesignLayoutEditor.open({model:FrontLayout,item:{id:record.id,name:record.name+'さんの宛名面'},layout:state.frontLayout,content,
     oneLabel:'この宛先だけ',allLabel:'住所録の全員',
-    textNote:'氏名・住所・差出人の文字はこの宛先だけに保存します。全員の差出人は画面上部で設定できます。',
+    textNote:'氏名・住所・差出人の文字と、選んだ部分の文字の大きさは、この宛先だけに保存します。全員の差出人は画面上部で設定できます。',
+    rangeSizes:C.SIZE_FIELDS,
     oneHint:'配置・文字の向き・大きさを、この宛先だけに適用します。',allHint:'変更した項目の配置・文字の向き・大きさを、全員に適用します。宛先の文字は各人のままです。',
-    fields:key=>({names:[{key:'name',label:'宛先の氏名',maxLength:80},{key:'honorific',label:'敬称',maxLength:10},{key:'joint',label:'連名（1行に1名）',rows:3,maxLength:240}],address:[{key:'address',label:'住所',rows:3}],building:[{key:'building',label:'建物名・部屋番号',rows:2}],postal:[{key:'zip',label:'郵便番号',maxLength:10}],sender:[{key:'senderName',label:'差出人の氏名',maxLength:80},{key:'senderAddress',label:'差出人の住所',rows:3},{key:'senderBuilding',label:'差出人の建物名',rows:2}],senderzip:[{key:'senderZip',label:'差出人の郵便番号',maxLength:10}],newyear:[{key:'yearLabel',label:'表示する文字',maxLength:20}]})[key]||[],
+    fields:key=>({names:[{key:'name',label:'宛先の氏名',maxLength:80},{key:'honorific',label:'敬称',maxLength:10},{key:'joint',label:'連名（1行に1名）',rows:3,maxLength:240}],joint:[{key:'joint',label:'連名（1行に1名）',rows:4,maxLength:240}],address:[{key:'address',label:'住所',rows:3}],building:[{key:'building',label:'建物名・部屋番号',rows:2}],postal:[{key:'zip',label:'郵便番号',maxLength:10}],sender:[{key:'senderName',label:'差出人の氏名',maxLength:80},{key:'senderAddress',label:'差出人の住所',rows:3},{key:'senderBuilding',label:'差出人の建物名',rows:2}],senderzip:[{key:'senderZip',label:'差出人の郵便番号',maxLength:10}],newyear:[{key:'yearLabel',label:'表示する文字',maxLength:20}]})[key]||[],
     render:(layout,text)=>FrontRenderer.card(makeRecord(text),{...state,frontLayout:layout},$('#newyear').checked),
     applyPositions:(page,layout,text)=>FrontRenderer.applyPositions(page,makeRecord(text),{...state,frontLayout:layout}),
     onApply:(frontLayout,scope,text)=>{
-      const r=makeRecord(text);r.name=r.name.trim();r.address=r.address.trim();
+      const r=makeRecord(text);
+      // 前後の空白を除くと文字の位置がずれるので、選んだ部分の大きさもいっしょにずらす。
+      for(const key of ['name','address']){const value=r[key].trim();if(r.textSizes[key])r.textSizes={...r.textSizes,[key]:C.shiftRanges(r[key],value,r.textSizes[key])};r[key]=value;}
+      if(!Object.values(r.textSizes).some(list=>list.length))delete r.textSizes;
       if(!r.name||!r.address)return {ok:false,error:'宛先の氏名と住所を入力してください。'};
       if((r.zip&&!C.validZip(r.zip))||(r.senderOverride.zip&&!C.validZip(r.senderOverride.zip)))return {ok:false,error:'郵便番号は7桁で入力してください。'};
       // Preserve inheritance from the common sender until this recipient's sender is actually edited.
@@ -205,13 +246,18 @@ $('#recipient').onsubmit = event => {
   if (r.zip && !C.validZip(r.zip)) return setStatus('郵便番号は7桁で入力してください。', true);
   const existing = state.records.find(x => x.id === r.id);
   r.id = r.id || crypto.randomUUID();
-  const records = existing ? state.records.map(x => x.id === r.id ? {...x,...r} : x) : [...state.records, r];
+  const merged = existing ? {...existing, ...r} : r;
+  if (existing?.textSizes) merged.textSizes = resizedTexts(existing.textSizes, key => existing[key], key => r[key]);
+  const records = existing ? state.records.map(x => x.id === r.id ? withoutEmpty(merged) : x) : [...state.records, r];
   if (!commit({...state, records}, existing ? r.name + 'さんの宛先を更新しました。' : r.name + 'さんを住所録に追加しました。現在 ' + records.length + '人です。')) return;
   if (!existing) selected.add(r.id);
   $('#search').value = '';
   $('#recipientDialog').close();
   choose(r.id);
 };
+$('#memoForm').onsubmit = event => { event.preventDefault(); saveMemo($('#memoText').value); };
+$('#memoText').oninput = updateMemoCount;
+$('#memoClear').onclick = () => { if (confirm('このメモを消しますか？')) saveMemo(''); };
 $('#add').onclick = () => openEditor();
 $('#editActive').onclick = () => openEditor(active);
 $('#openFrontLayoutEditor').onclick=$('#preview').onclick=openFrontLayoutEditor;
@@ -242,18 +288,30 @@ $('#sender').onsubmit = event => {
   const sender = values(event.target);
   for (const k of Object.keys(sender)) sender[k] = sender[k].trim();
   if (sender.zip && !C.validZip(sender.zip)) return setStatus('差出人の郵便番号は7桁で入力してください。', true);
-  if (!commit({...state, sender}, '差出人を保存しました。すべての宛名に反映されます。')) return;
+  const senderKeys = {senderName: 'name', senderAddress: 'address', senderBuilding: 'building'};
+  const records = state.records.map(r => r.senderOverride || !r.textSizes ? r : withoutEmpty({...r, textSizes: resizedTexts(r.textSizes, key => senderKeys[key] ? state.sender[senderKeys[key]] : r[key], key => senderKeys[key] ? sender[senderKeys[key]] : r[key])}));
+  if (!commit({...state, sender, records}, '差出人を保存しました。すべての宛名に反映されます。')) return;
   $('#senderDialog').close();
   updateSenderButton();
   preview();
 };
 function updateSenderButton() { $('#openSender').textContent = state.sender.name ? '差出人：' + state.sender.name : '差出人を設定'; window.PostcardDesignApp?.refresh(); }
-function download(name, text, type) {
-  const url = URL.createObjectURL(new Blob([text], {type})), a = el('a');
+function download(name, content, type) {
+  const url = URL.createObjectURL(new Blob([content], {type})), a = el('a');
   a.href = url; a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 $('#export').onclick = () => { download('住所録.csv', C.toCSV(state.records), 'text/csv;charset=utf-8'); $('.data-menu').open = false; };
+// 名前・郵便番号・住所・連名・メモの一覧。取り込み用のCSVとは別に、表として読む人向けに書き出す。
+function exportList(kind) {
+  if (!state.records.length) return setStatus('住所録に宛先がありません。先に宛先を追加してください。', true);
+  const today = new Date(), stamp = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+  if (kind === 'excel') download('住所録一覧_' + stamp + '.xlsx', RecipientExport.toXLSX(state.records, today), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  else download('住所録一覧_' + stamp + '.csv', RecipientExport.toCSV(state.records), 'text/csv;charset=utf-8');
+  setStatus(state.records.length + '人分の一覧を' + (kind === 'excel' ? 'Excel' : 'CSV') + 'で出力しました。保存先を選んでください。');
+}
+$('#exportExcel').onclick = () => exportList('excel');
+$('#exportListCSV').onclick = () => exportList('csv');
 $('#backup').onclick = () => { download('宛名はがき-backup.json', JSON.stringify(state, null, 2), 'application/json'); $('.data-menu').open = false; };
 $('#restoreButton').onclick = () => { $('.data-menu').open = false; $('#restore').click(); };
 $('#sampleCSV').onclick = () => download('住所録の見本.csv', C.toCSV([{name:'山田 太郎', honorific:'様', joint:'', zip:'123-4567', address:'東京都千代田区丸の内1-2-3', building:'○○マンション101号室'}]), 'text/csv;charset=utf-8');
@@ -335,18 +393,21 @@ for (const key of ['offsetX', 'offsetY']) $('#' + key).oninput = event => {
   if (commit({...state, [key]:value})) preview();
 };
 $('#newyear').onchange = preview;
+// 官製はがきは郵便番号の枠が印刷済みなので、枠を重ねて刷るかどうかを選べるようにする。
+$('#postalFrame').onchange = event => { if (commit({...state, postalFrame: event.target.checked})) preview(); else event.target.checked = state.postalFrame !== false; };
 async function printFront() {
   const records = state.records.filter(r => selected.has(r.id));
   if (!records.length) return setStatus('印刷する宛先にチェックを付けてください。', true);
   const invalid = records.find(r => r.zip && !C.validZip(r.zip));
   if (invalid) return setStatus(invalid.name + 'さんの郵便番号を確認してください。', true);
   $('#printArea').replaceChildren(...records.map(card));
-  try{await PostcardPrinting.open({side:'宛名面（おもて）',count:records.length});}catch(error){setStatus('印刷の準備ができませんでした。'+error.message,true);}
+  try{await PostcardPrinting.open({side:'宛名面（おもて）',count:records.length,name:'年賀はがき_宛名面'});}catch(error){setStatus('印刷の準備ができませんでした。'+error.message,true);}
 }
 $('#print').onclick=printFront;
 function init() {
   fill($('#sender'), state.sender);
   $('#offsetX').value = state.offsetX; $('#offsetY').value = state.offsetY;
+  $('#postalFrame').checked = state.postalFrame !== false;
   updateSenderButton();
   updateStorageLabel();
   choose(state.records[0]?.id || null);

@@ -24,6 +24,8 @@ async function run(){
   if(!runtime.packaged||!runtime.path.endsWith('app.asar')||runtime.documents!==documents||runtime.userData!==profile)throw Error('Packaged runtime or isolated paths mismatch');
   result.packaged=true;result.asar=true;result.version=runtime.version;
   await node.evaluate('global.__exeTestPrintJobs=[];const wc=global.__exeTestElectron.BrowserWindow.getAllWindows().find(w=>w.getTitle()==="宛名はがき").webContents;wc.getPrintersAsync=async()=>[{name:"Test postcard printer",displayName:"テスト専用",isDefault:true,status:0}];wc.print=(options,callback)=>{global.__exeTestPrintJobs.push(options);callback(true)};true');
+  const pdfPath=path.join(out,'exe-print-range.pdf');
+  await node.evaluate('global.__exeTestElectron.dialog.showSaveDialog=async()=>({canceled:false,filePath:'+JSON.stringify(pdfPath)+'});true');
   result.addressBook=await renderer.evaluate(fs.readFileSync(path.join(__dirname,'ui-scenario.js'),'utf8'));
   await renderer.send('Emulation.setEmulatedMedia',{media:'print'});
   try{
@@ -36,6 +38,12 @@ async function run(){
   const screenshot=await renderer.send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(out,'exe-designs.png'),Buffer.from(screenshot.data,'base64'));
   const jobs=await node.evaluate('global.__exeTestPrintJobs');if(jobs.length!==3||jobs.some(j=>j.pageSize.width!==100000||j.pageSize.height!==148000))throw Error('Packaged printing bridge failed');result.printing={simulated:true,jobs:jobs.length,postcardSize:true};
   result.usability=await renderer.evaluate(fs.readFileSync(path.join(__dirname,'usability-scenario.js'),'utf8'));
+  result.typesetting=await renderer.evaluate(fs.readFileSync(path.join(__dirname,'typesetting-scenario.js'),'utf8'));
+  const pdfPages=[...fs.readFileSync(pdfPath).toString('latin1').matchAll(/\/Type\s*\/Page\b/g)].length;
+  if(pdfPages!==2)throw Error('Packaged PDF export should hold the two chosen cards, not '+pdfPages);
+  result.typesetting.pdfPages=pdfPages;
+  result.memo=await renderer.evaluate(fs.readFileSync(path.join(__dirname,'memo-scenario.js'),'utf8'));
+  result.jointAndPartialSize=await renderer.evaluate(fs.readFileSync(path.join(__dirname,'joint-size-scenario.js'),'utf8'));
   await renderer.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
   const reviewScreenshot=await renderer.send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(out,'exe-review.png'),Buffer.from(reviewScreenshot.data,'base64'));
   const addressFolder=path.join(documents,'宛名はがき');if(JSON.parse(fs.readFileSync(path.join(addressFolder,'住所録.json'),'utf8')).records.length!==3||!fs.existsSync(path.join(addressFolder,'住所録.backup.json')))throw Error('Packaged address book save failed');

@@ -13,7 +13,8 @@ const timer=setTimeout(()=>{fs.writeFileSync(resultPath,JSON.stringify({ok:false
 app.whenReady().then(async()=>{
   try{
     const store=require('../storage-ipc.cjs').registerStorage({ipcMain,shell,folder:path.join(dataPath,'Documents','宛名はがき'),getWindow:()=>win});
-    require('../printing-ipc.cjs').registerPrinting({ipcMain,getWindow:()=>win});
+    const pdfPath=path.join(root,'print-range-check.pdf');
+  require('../printing-ipc.cjs').registerPrinting({ipcMain,getWindow:()=>win,dialog:{showSaveDialog:async()=>({canceled:false,filePath:pdfPath})}});
     const legacy={records:[{id:'legacy',name:'移行確認 太郎',address:'東京都千代田区1-2'}],sender:{name:'差出人 花子'},offsetX:1,offsetY:-1};
     const seedWindow=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
     await seedWindow.loadFile(path.resolve(__dirname,'../index.html'));
@@ -110,6 +111,20 @@ app.whenReady().then(async()=>{
     await new Promise(resolve=>setTimeout(resolve,200));
     await win.webContents.capturePage().then(img=>fs.writeFileSync(path.join(root,'ui-layout-editor.png'),img.toPNG()));
     await win.webContents.executeJavaScript("document.querySelector('#layoutCancel').click()");
+    result.typesetting=await win.webContents.executeJavaScript(fs.readFileSync(path.join(__dirname,'typesetting-scenario.js'),'utf8'));
+    const savedPDF=fs.readFileSync(pdfPath);checkPDF(savedPDF,2);result.typesetting.pdfPages=2;
+    result.memo=await win.webContents.executeJavaScript(fs.readFileSync(path.join(__dirname,'memo-scenario.js'),'utf8'));
+    result.jointAndPartialSize=await win.webContents.executeJavaScript(fs.readFileSync(path.join(__dirname,'joint-size-scenario.js'),'utf8'));
+    const exportFolder=fs.mkdtempSync(path.join(root,'list-export-')),downloads=[];
+    win.webContents.session.on('will-download',(event,item)=>{const file=path.join(exportFolder,item.getFilename());item.setSavePath(file);downloads.push(new Promise(resolve=>item.once('done',(e,state)=>resolve({file,state}))));});
+    await win.webContents.executeJavaScript("document.querySelector('#exportExcel').click();document.querySelector('#exportListCSV').click();true");
+    for(let n=0;n<100&&downloads.length<2;n++)await new Promise(r=>setTimeout(r,50));
+    const exported=await Promise.all(downloads),names=await win.webContents.executeJavaScript('addressBookStorage.load().state.records.map(r=>r.name)');
+    const xlsx=exported.find(d=>d.file.endsWith('.xlsx')),csv=exported.find(d=>d.file.endsWith('.csv'));
+    if(exported.length!==2||exported.some(d=>d.state!=='completed')||!/住所録一覧_\d{4}-\d{2}-\d{2}\.xlsx$/.test(xlsx?.file||''))throw Error('Excel and CSV list export did not save: '+JSON.stringify(exported));
+    const csvText=fs.readFileSync(csv.file,'utf8'),xlsxBytes=fs.readFileSync(xlsx.file);
+    if(!csvText.replace(/^\uFEFF/,'').startsWith('名前,郵便番号,住所,連名,メモ')||names.some(n=>!csvText.includes(n))||xlsxBytes.readUInt32LE(0)!==0x04034b50)throw Error('Exported list content is wrong');
+    result.listExport={excel:true,csv:true,rows:names.length};
     fs.writeFileSync(resultPath,JSON.stringify(result,null,2));
     console.log(JSON.stringify(result));
     clearTimeout(timer);

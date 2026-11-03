@@ -1,7 +1,8 @@
 const {contextBridge, ipcRenderer} = require('electron');
 contextBridge.exposeInMainWorld('postcardPrinter',{
   list:()=>ipcRenderer.invoke('postcard-print:list'),
-  print:job=>ipcRenderer.invoke('postcard-print:start',job)
+  print:job=>ipcRenderer.invoke('postcard-print:start',job),
+  savePDF:job=>ipcRenderer.invoke('postcard-print:pdf',job)
 });
 // Only this fixed address book is exposed; renderer code cannot choose a path.
 contextBridge.exposeInMainWorld('addressBookStorage', {

@@ -2,12 +2,18 @@ const {spawn}=require('node:child_process');
 const fs=require('node:fs');
 const path=require('node:path');
 const log=path.join(__dirname,'startup.log');
-const executable=path.join(__dirname,'node_modules','electron','dist','electron.exe');
-const env={...process.env};
-delete env.ELECTRON_RUN_AS_NODE;
-delete env.NODE_OPTIONS;
 fs.appendFileSync(log,`\n${new Date().toISOString()} Starting desktop application\n`);
-if(!fs.existsSync(executable)){console.error('Electron is missing. Run npm install and node node_modules/electron/install.js');process.exit(1);}
+// このPCのWindowsのApplication Controlポリシーがelectron.exeをブロックすることがある。
+// electron-binary.cjs が別名コピーへのフォールバックを管理する（テストと共通のロジック）。
+let executable,env;
+try{
+  const eb=require('./tests/electron-binary.cjs');
+  executable=eb.electronBinary();
+  env=eb.electronEnv();
+  fs.appendFileSync(log,`Using: ${executable}\n`);
+}catch(err){
+  fs.appendFileSync(log,err.message+'\n');console.error(err.message);process.exit(1);
+}
 // This is the interactive application window requested by the user.
 const child=spawn(executable,[__dirname],{cwd:__dirname,env,windowsHide:false,stdio:['ignore','pipe','pipe']});
 for(const stream of [child.stdout,child.stderr])stream.on('data',data=>{fs.appendFileSync(log,data);process.stdout.write(data);});

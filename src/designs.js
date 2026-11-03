@@ -160,7 +160,7 @@
       }
       $('#printArea').replaceChildren(fragment);
       await Promise.all([...$('#printArea').querySelectorAll('img')].map(image=>image.decode()));
-      await root.PostcardPrinting.open({side:'デザイン面（うら）',count:copies});
+      await root.PostcardPrinting.open({side:'デザイン面（うら）',count:copies,name:'年賀はがき_'+(selectedItem()?.name||'うら面')});
     }catch(error){say('印刷の準備ができませんでした。'+error.message,true);}
     finally{button.disabled=false;}
   }
